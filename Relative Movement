@@ -1,0 +1,71 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+
+local character = player.Character or player.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+local currentPlatform = nil
+local lastPlatformCFrame = nil
+
+-- Detect if player is standing on a platform
+local function updatePlatform()
+    local floorPart = humanoid.FloorMaterial
+    print("Floor Material: ", floorPart)
+
+    if floorPart == Enum.Material.Air then
+        currentPlatform = nil
+        lastPlatformCFrame = nil
+        print("Not standing on any platform")
+        return
+    end
+
+    local ray = Ray.new(hrp.Position, Vector3.new(0, -5, 0))
+    local hitPart = workspace:FindPartOnRay(ray, character)
+    print("Hit Part: ", hitPart)
+
+    if hitPart and hitPart.Parent and hitPart.Anchored == false then
+        currentPlatform = hitPart
+        print("Current Platform: ", currentPlatform)
+
+        if not lastPlatformCFrame then
+            lastPlatformCFrame = currentPlatform.CFrame
+            print("Last Platform CFrame Initialized: ", lastPlatformCFrame)
+        end
+    else
+        currentPlatform = nil
+        lastPlatformCFrame = nil
+        print("No platform detected")
+    end
+end
+
+-- Apply both position and rotation offsets
+RunService.RenderStepped:Connect(function(deltaTime)
+    updatePlatform()
+
+    if currentPlatform and lastPlatformCFrame then
+        local currentCFrame = currentPlatform.CFrame
+        print("Current Platform CFrame: ", currentCFrame)
+
+        -- Calculate position change (linear motion)
+        local positionOffset = currentCFrame.Position - lastPlatformCFrame.Position
+        print("Position Offset: ", positionOffset)
+
+        -- Calculate rotation change (angular motion)
+        local relativeRotation = lastPlatformCFrame:ToObjectSpace(currentCFrame)
+        print("Relative Rotation: ", relativeRotation)
+
+        -- Apply position offset
+        hrp.CFrame = hrp.CFrame + positionOffset
+        print("New HRP CFrame (position offset): ", hrp.CFrame)
+
+        -- Apply rotation offset (rotates the player with the platform)
+        hrp.CFrame = currentCFrame * relativeRotation:Inverse() * hrp.CFrame
+        print("New HRP CFrame (rotation offset): ", hrp.CFrame)
+
+        -- Update platform's last known CFrame
+        lastPlatformCFrame = currentCFrame
+        print("Updated Last Platform CFrame: ", lastPlatformCFrame)
+    end
+end)

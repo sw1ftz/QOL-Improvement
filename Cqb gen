@@ -1,0 +1,135 @@
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- SETTINGS
+local gridSize = Vector2.new(6, 6) -- 6x6 grid
+local cellSize = 15
+local wallHeight = 10
+local hallwayWidth = 6
+
+-- Wall templates (you should have Wall1 and Wall2 in ReplicatedStorage)
+local wallTemplates = {
+    ReplicatedStorage:WaitForChild("Wall1"), -- Normal wall
+    ReplicatedStorage:WaitForChild("Wall2")  -- Wall with door (optional - you can make it breachable if you want)
+}
+
+-- Placeholders
+local cells = {}
+
+-- Utility to pick a random wall
+local function placeWall(position, rotation, parent)
+    local wallTemplate = wallTemplates[math.random(1, #wallTemplates)]
+    local wall = wallTemplate:Clone()
+    wall.Position = position
+    wall.Orientation = rotation
+    wall.Parent = parent
+end
+
+-- Create a blank grid (all cells start as rooms)
+local function initializeGrid()
+    for x = 1, gridSize.X do
+        cells[x] = {}
+        for y = 1, gridSize.Y do
+            cells[x][y] = {
+                isRoom = true,    -- Start as rooms
+                connected = false -- Will track whether the cell is connected
+            }
+        end
+    end
+end
+
+-- Carve hallways by making some cells hallways and ensuring they link all rooms
+local function carveHallways()
+    local startX, startY = 1, 1
+    local stack = {{x = startX, y = startY}}
+    cells[startX][startY].connected = true
+
+    while #stack > 0 do
+        local current = stack[#stack]
+        local x, y = current.x, current.y
+
+        local directions = {
+            {dx = 0, dy = 1},  -- North
+            {dx = 1, dy = 0},  -- East
+            {dx = 0, dy = -1}, -- South
+            {dx = -1, dy = 0}  -- West
+        }
+
+        local validNeighbors = {}
+
+        for _, dir in pairs(directions) do
+            local nx, ny = x + dir.dx, y + dir.dy
+            if nx > 0 and ny > 0 and nx <= gridSize.X and ny <= gridSize.Y and not cells[nx][ny].connected then
+                table.insert(validNeighbors, {x = nx, y = ny})
+            end
+        end
+
+        if #validNeighbors > 0 then
+            local nextCell = validNeighbors[math.random(1, #validNeighbors)]
+            cells[nextCell.x][nextCell.y].connected = true
+
+            -- Carve hallway (by turning the next cell into a hallway)
+            cells[nextCell.x][nextCell.y].isRoom = false
+
+            table.insert(stack, nextCell)
+        else
+            table.remove(stack)
+        end
+    end
+end
+
+-- Place walls around rooms and hallways
+local function placeWalls(killhouseFolder)
+    for x = 1, gridSize.X do
+        for y = 1, gridSize.Y do
+            local cell = cells[x][y]
+            local cellCenter = Vector3.new((x - 1) * cellSize, wallHeight / 2, (y - 1) * cellSize)
+
+            local function shouldHaveWall(nx, ny)
+                if nx < 1 or ny < 1 or nx > gridSize.X or ny > gridSize.Y then
+                    return true
+                end
+                if cells[nx][ny].isRoom ~= cell.isRoom then
+                    return true
+                end
+                return false
+            end
+
+            -- Place north wall
+            if shouldHaveWall(x, y - 1) then
+                placeWall(cellCenter + Vector3.new(0, 0, -cellSize / 2), Vector3.new(0, 0, 0), killhouseFolder)
+            end
+
+            -- Place west wall
+            if shouldHaveWall(x - 1, y) then
+                placeWall(cellCenter + Vector3.new(-cellSize / 2, 0, 0), Vector3.new(0, 90, 0), killhouseFolder)
+            end
+
+            -- Place south wall if on outer edge
+            if y == gridSize.Y then
+                placeWall(cellCenter + Vector3.new(0, 0, cellSize / 2), Vector3.new(0, 0, 0), killhouseFolder)
+            end
+
+            -- Place east wall if on outer edge
+            if x == gridSize.X then
+                placeWall(cellCenter + Vector3.new(cellSize / 2, 0, 0), Vector3.new(0, 90, 0), killhouseFolder)
+            end
+        end
+    end
+end
+
+-- Generate the killhouse (rooms, hallways, walls)
+local function generateKillhouse()
+    local killhouseFolder = Instance.new("Folder")
+    killhouseFolder.Name = "GeneratedKillhouse"
+    killhouseFolder.Parent = Workspace
+
+    initializeGrid()
+    carveHallways()  -- Create connected hallways
+    placeWalls(killhouseFolder)
+
+    print("Killhouse generated with fully connected rooms and hallways.")
+end
+
+-- Run when script starts
+generateKillhouse()

@@ -1,48 +1,32 @@
-while #game.Workspace.Other:GetChildren() < 10 do
-	while wait() do
-		if script.Parent.Parent.Parent.Parent.Engine.SpeedYes.Value > 20 then
-			script.Parent.Parent.Down1.Transparency = 1
-			script.Parent.Parent.Down2.Transparency = 1
-			script.Parent.Parent.Down3.Transparency = 1
-			script.Parent.Parent.Down4.Transparency = 1
-			script.Parent.Parent.Down5.Transparency = 1
-			script.Parent.Parent.Down6.Transparency = 1
-			script.Parent.Parent.Up1.Transparency = 0
-			script.Parent.Parent.Up2.Transparency = 0
-			script.Parent.Parent.Up3.Transparency = 0
-			script.Parent.Parent.Up4.Transparency = 0
-			script.Parent.Parent.Up5.Transparency = 0
-			script.Parent.Parent.Up6.Transparency = 0
-			script.Parent.Parent.Spin1.One.Transparency = 0
-			script.Parent.Parent.Spin1.Two.Transparency = 0
-			script.Parent.Parent.Spin1.Three.Transparency = 0
-			script.Parent.Parent.Spin1.Four.Transparency = 0
-			script.Parent.Parent.Spin2.One.Transparency = 0.5
-			script.Parent.Parent.Spin2.Two.Transparency = 0.5
-			script.Parent.Parent.Spin2.Three.Transparency = 0.5
-			script.Parent.Parent.Spin2.Four.Transparency = 0.5
-		else
-			script.Parent.Parent.Down1.Transparency = 0
-			script.Parent.Parent.Down2.Transparency = 0
-			script.Parent.Parent.Down3.Transparency = 0
-			script.Parent.Parent.Down4.Transparency = 0
-			script.Parent.Parent.Down5.Transparency = 0
-			script.Parent.Parent.Down6.Transparency = 0
-			script.Parent.Parent.Up1.Transparency = 1
-			script.Parent.Parent.Up2.Transparency = 1
-			script.Parent.Parent.Up3.Transparency = 1
-			script.Parent.Parent.Up4.Transparency = 1
-			script.Parent.Parent.Up5.Transparency = 1
-			script.Parent.Parent.Up6.Transparency = 1
-			script.Parent.Parent.Spin1.One.Transparency = 1
-			script.Parent.Parent.Spin1.Two.Transparency = 1
-			script.Parent.Parent.Spin1.Three.Transparency = 1
-			script.Parent.Parent.Spin1.Four.Transparency = 1
-			script.Parent.Parent.Spin2.One.Transparency = 1
-			script.Parent.Parent.Spin2.Two.Transparency = 1
-			script.Parent.Parent.Spin2.Three.Transparency = 1
-			script.Parent.Parent.Spin2.Four.Transparency = 1
-			wait()
+local function setTransparency(isSpeedHigh)
+	local transparencyValue = isSpeedHigh and {Down = 1, Up = 0, Spin1 = 0, Spin2 = 0.5} or {Down = 0, Up = 1, Spin1 = 1, Spin2 = 1}
+
+	for _, partName in ipairs({"Down", "Up"}) do
+		for i = 1, 6 do
+			script.Parent.Parent[partName .. i].Transparency = transparencyValue[partName]
 		end
 	end
+
+	for partName, transparency in pairs(transparencyValue) do
+		if partName == "Spin1" or partName == "Spin2" then
+			for i = 1, 4 do
+				script.Parent.Parent[partName]["One"].Transparency = transparency
+				script.Parent.Parent[partName]["Two"].Transparency = transparency
+				script.Parent.Parent[partName]["Three"].Transparency = transparency
+				script.Parent.Parent[partName]["Four"].Transparency = transparency
+			end
+		end
+	end
+end
+
+if not game.Workspace:FindFirstChild("Other") then
+	local other = Instance.new("Folder")
+	other.Name = "Other"
+	other.Parent = game.Workspace
+end
+
+while #game.Workspace.Other:GetChildren() < 10 do
+	wait()
+	local isSpeedHigh = script.Parent.Parent.Parent.Parent.Engine.SpeedYes.Value > 50
+	setTransparency(isSpeedHigh)
 end

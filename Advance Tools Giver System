@@ -1,0 +1,133 @@
+local replicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Define tools, their respective click detectors, and mesh parts
+local toolMapping = {
+	["ClickDetection_M870"] = {
+		toolName = "M870",
+		meshParts = {"M870"}, -- The part that disappears
+		clickDetectorPart = "ClickDetection_M870", -- ClickDetector removed after 3 Slap tools given
+		maxUses = nil -- No limit
+	},
+	["ClickDetection_Slap"] = {
+		toolName = "Hinge Charge",
+		meshParts = {"SlapBody", "SlapBody2"}, -- Disappear when Slap is fully used
+		clickDetectorPart = "ClickDetection_Slap",
+		maxUses = 3 -- Only 3 uses globally
+	}
+}
+
+-- Global usage count for Slap
+local globalSlapUses = 0
+
+-- Function to check if player has the tool
+local function hasTool(player, toolName)
+	local backpack = player:FindFirstChild("Backpack")
+	local character = player.Character
+	return (backpack and backpack:FindFirstChild(toolName)) or (character and character:FindFirstChild(toolName))
+end
+
+-- Function to remove a tool from the player's backpack and character
+local function removeTool(player, toolName)
+	for _, container in ipairs({player:FindFirstChild("Backpack"), player.Character}) do
+		if container then
+			local tool = container:FindFirstChild(toolName)
+			if tool then
+				tool:Destroy()
+			end
+		end
+	end
+end
+
+-- Function to toggle multiple mesh parts
+local function toggleMeshParts(parts, transparency, canCollide)
+	for _, partName in ipairs(parts) do
+		local part = script.Parent.Parent:FindFirstChild(partName)
+		if part then
+			part.Transparency = transparency
+			part.CanCollide = canCollide
+		end
+	end
+end
+
+-- Function to give a tool and toggle mesh visibility
+local function giveToolAndToggleMesh(player, toolData)
+	local character = player.Character
+	local backpack = player:FindFirstChild("Backpack")
+	if not character or not backpack then return end
+
+	-- Find the tool in ReplicatedStorage
+	local tool = replicatedStorage:FindFirstChild(toolData.toolName)
+	if not tool then
+		warn(toolData.toolName .. " tool not found in ReplicatedStorage!")
+		return
+	end
+
+	-- Handle Slap tool limit
+	if toolData.toolName == "Hinge Charge" then
+		if globalSlapUses >= toolData.maxUses then
+			warn("Hinge Charge has reached its global limit!")
+			return
+		end
+		globalSlapUses = globalSlapUses + 1
+
+		-- If Slap tool reaches the limit, hide `SlapBody` & `SlapBody2`
+		if globalSlapUses >= toolData.maxUses then
+			toggleMeshParts(toolData.meshParts, 1, false) -- Hide SlapBody & SlapBody2
+
+			-- Remove ClickDetector from ClickDetection_Slap
+			local m870ClickPart = script.Parent.Parent:FindFirstChild(toolMapping["ClickDetection_Slap"].clickDetectorPart)
+			if m870ClickPart then
+				local clickDetector = m870ClickPart:FindFirstChild("ClickDetector")
+				if clickDetector then
+					clickDetector:Destroy()
+				end
+			end
+		end
+	end
+
+	-- If M870 is hidden and player has the tool, return it
+	if toolData.toolName == "M870" and hasTool(player, toolData.toolName) then
+		removeTool(player, toolData.toolName) -- Remove tool
+		toggleMeshParts(toolData.meshParts, 0, true) -- Make M870 visible again
+		return
+	end
+
+	-- Prevent getting M870 while it's hidden
+	if hasTool(player, toolData.toolName) then
+		return
+	end
+
+	-- Give the tool to the player
+	local toolClone = tool:Clone()
+	toolClone.Parent = backpack
+
+	-- Hide the M870 mesh when picked up
+	if toolData.toolName == "M870" then
+		toggleMeshParts(toolData.meshParts, 1, false) -- Hide M870
+	end
+end
+
+-- Function to setup click detection
+local function setupClickDetection(partName, toolData)
+	local clickPart = script.Parent.Parent:FindFirstChild(partName)
+	if not clickPart then
+		warn(partName .. " not found!")
+		return
+	end
+
+	local clickDetector = clickPart:FindFirstChild("ClickDetector")
+	if not clickDetector then
+		warn("ClickDetector not found inside " .. partName .. "!")
+		return
+	end
+
+	-- Connect click event
+	clickDetector.MouseClick:Connect(function(player)
+		giveToolAndToggleMesh(player, toolData)
+	end)
+end
+
+-- Setup click detection for both tools
+for partName, toolData in pairs(toolMapping) do
+	setupClickDetection(partName, toolData)
+end

@@ -1,39 +1,17 @@
-local replicatedStorage = game:GetService("ReplicatedStorage")
+local replicatedStorage = game:GetService("ReplicatedStorage").Tools
+local settings = require(script.Parent:FindFirstChild("Setting")) -- Load configuration from Setting module
 
--- Define tools, their respective click detectors, and mesh parts
-local toolMapping = {
-	["ClickDetection_M870"] = {
-		toolName = "M870",
-		meshParts = {"M870"},
-		clickDetectorPart = "ClickDetection_M870",
-		maxUses = nil
-	},
-	["ClickDetection_Slap"] = {
-		toolName = "Hinge Charge",
-		meshParts = {"SlapBody", "SlapBody2"},
-		clickDetectorPart = "ClickDetection_Slap",
-		maxUses = 3
-	}
-}
-
--- Global usage count for Hinge Charge
+-- Global usage count for Slap
 local globalSlapUses = 0
 
--- Utility functions
-local function findToolInReplicatedStorage(toolName)
-	local tool = replicatedStorage.Tools:FindFirstChild(toolName)
-	if not tool then
-		warn(toolName .. " tool not found in ReplicatedStorage!")
-	end
-	return tool
-end
-
+-- Function to check if player has the tool
 local function hasTool(player, toolName)
 	local backpack = player:FindFirstChild("Backpack")
 	local character = player.Character
 	return (backpack and backpack:FindFirstChild(toolName)) or (character and character:FindFirstChild(toolName))
 end
 
+-- Function to remove a tool from the player's backpack and character
 local function removeTool(player, toolName)
 	for _, container in ipairs({player:FindFirstChild("Backpack"), player.Character}) do
 		if container then
@@ -45,6 +23,7 @@ local function removeTool(player, toolName)
 	end
 end
 
+-- Function to toggle multiple mesh parts
 local function toggleMeshParts(parts, transparency, canCollide)
 	for _, partName in ipairs(parts) do
 		local part = script.Parent.Parent:FindFirstChild(partName)
@@ -55,13 +34,21 @@ local function toggleMeshParts(parts, transparency, canCollide)
 	end
 end
 
+-- Function to show notifications (Placeholder, implement UI as needed)
 local function showNotification(player, message)
-	-- Placeholder for sending a notification to the player
-	-- Implement the actual notification system as per your game's requirements
 	print("Notification to " .. player.Name .. ": " .. message)
 end
 
--- Main function to give a tool and toggle mesh visibility
+-- Function to find tool in ReplicatedStorage
+local function findToolInReplicatedStorage(toolName)
+	local tool = replicatedStorage:FindFirstChild(toolName)
+	if not tool then
+		warn("[ERROR] Tool '" .. toolName .. "' not found in ReplicatedStorage!")
+	end
+	return tool
+end
+
+-- Function to give a tool and toggle mesh visibility
 local function giveToolAndToggleMesh(player, toolData)
 	local character = player.Character
 	local backpack = player:FindFirstChild("Backpack")
@@ -70,15 +57,15 @@ local function giveToolAndToggleMesh(player, toolData)
 	local tool = findToolInReplicatedStorage(toolData.toolName)
 	if not tool then return end
 
-	if toolData.toolName == "Hinge Charge" then
-		if globalSlapUses >= toolData.maxUses then
-			warn("Hinge Charge has reached its global limit!")
+	if toolData.toolName == settings.SlapToolName then
+		if globalSlapUses >= settings.MaxSlapUses then
+			warn(settings.SlapToolName .. " has reached its global limit!")
 			return
 		end
 		globalSlapUses = globalSlapUses + 1
-		if globalSlapUses >= toolData.maxUses then
+		if globalSlapUses >= settings.MaxSlapUses then
 			toggleMeshParts(toolData.meshParts, 1, false)
-			local slapClickPart = script.Parent.Parent:FindFirstChild(toolMapping["ClickDetection_Slap"].clickDetectorPart)
+			local slapClickPart = script.Parent.Parent:FindFirstChild(toolData.clickDetectorPart)
 			if slapClickPart then
 				local clickDetector = slapClickPart:FindFirstChild("ClickDetector")
 				if clickDetector then
@@ -89,7 +76,7 @@ local function giveToolAndToggleMesh(player, toolData)
 	end
 
 	local hasTakenM870 = player:FindFirstChild("HasTakenM870")
-	if toolData.toolName == "M870" then
+	if toolData.toolName == settings.HiddenToolName then
 		if hasTool(player, toolData.toolName) then
 			removeTool(player, toolData.toolName)
 			toggleMeshParts(toolData.meshParts, 0, true)
@@ -125,7 +112,7 @@ local function giveToolAndToggleMesh(player, toolData)
 
 	local toolClone = tool:Clone()
 	toolClone.Parent = backpack
-	if toolData.toolName == "M870" then
+	if toolData.toolName == settings.HiddenToolName then
 		toggleMeshParts(toolData.meshParts, 1, false)
 	end
 	showNotification(player, "You have received the " .. toolData.toolName .. " tool.")
@@ -150,7 +137,7 @@ local function setupClickDetection(partName, toolData)
 	end)
 end
 
--- Setup click detection for both tools
-for partName, toolData in pairs(toolMapping) do
+-- Setup click detection for tools using settings module
+for partName, toolData in pairs(settings.ToolMapping) do
 	setupClickDetection(partName, toolData)
 end

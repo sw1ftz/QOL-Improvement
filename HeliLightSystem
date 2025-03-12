@@ -1,0 +1,23 @@
+local events = script.Parent
+local functional = events.Parent
+local stats = functional.Stats
+
+local function toggleLightsAndGuis(lightsGroup, on)
+	for _, v in pairs(lightsGroup:GetDescendants()) do
+		if v:IsA("PointLight") or v:IsA("SurfaceLight") or v:IsA("SpotLight") then
+			v.Enabled = on
+		elseif v:IsA("BillboardGui") then
+			v.Enabled = on
+		end
+	end
+end
+
+events.LightsInside.OnServerEvent:Connect(function(plr, on)
+	stats.LightsInsideOn.Value = on
+	toggleLightsAndGuis(functional.Lights.Interior, on)
+end)
+
+events.LightsOutside.OnServerEvent:Connect(function(plr, on)
+	stats.LightsOutsideOn.Value = on
+	toggleLightsAndGuis(functional.Lights.Exterior, on)
+end)

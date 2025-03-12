@@ -1,0 +1,16 @@
+return {
+	ToolMapping = {
+		["ClickDetection_M870"] = {
+			toolName = "M870",
+			meshParts = {"M870"},
+			clickDetectorPart = "ClickDetection_M870",
+			maxUses = nil
+		},
+		["ClickDetection_Slap"] = {
+			toolName = "Hinge Charge",
+			meshParts = {"SlapBody", "SlapBody2"},
+			clickDetectorPart = "ClickDetection_Slap",
+			maxUses = 3
+		}
+	}
+}

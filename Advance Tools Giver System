@@ -1,8 +1,37 @@
-local replicatedStorage = game:GetService("ReplicatedStorage").Tools
-local settings = require(script.Parent:FindFirstChild("Setting")) -- Load configuration from Setting module
+local settings = {
+	ToolMapping = {
+		["ClickDetection_M870"] = {
+			toolName = "M870",
+			meshParts = {"M870"},
+			clickDetectorPart = "ClickDetection_M870",
+			maxUses = nil,
+			transparencyOnGive = 1,
+			transparencyOnReturn = 0,
+			canCollideOnGive = false,
+			canCollideOnReturn = true,
+			notificationOnGive = "You have received the M870 tool.",
+			notificationOnReturn = "You have returned the M870 tool.",
+			canReturn = true
+		},
+		["ClickDetection_Slap"] = {
+			toolName = "Hinge Charge",
+			meshParts = {"SlapBody", "SlapBody2"},
+			clickDetectorPart = "ClickDetection_Slap",
+			maxUses = 3,
+			transparencyOnGive = 1,
+			canCollideOnGive = false,
+			notificationOnGive = "You have received the Hinge Charge.",
+			canReturn = false
+		}
+	},
+	SlapToolName = "Hinge Charge",
+	MaxSlapUses = 3,
+	HiddenToolName = "M870"
+}
 
--- Global usage count for Slap
-local globalSlapUses = 0
+-- Main Script
+local Tool = script.M870
+local globalSlapUses = 0 -- Global usage count for Slap
 
 -- Function to check if player has the tool
 local function hasTool(player, toolName)
@@ -41,7 +70,7 @@ end
 
 -- Function to find tool in ReplicatedStorage
 local function findToolInReplicatedStorage(toolName)
-	local tool = replicatedStorage:FindFirstChild(toolName)
+	local tool = Tool:FindFirstChild(toolName)
 	if not tool then
 		warn("[ERROR] Tool '" .. toolName .. "' not found in ReplicatedStorage!")
 	end
@@ -64,7 +93,7 @@ local function giveToolAndToggleMesh(player, toolData)
 		end
 		globalSlapUses = globalSlapUses + 1
 		if globalSlapUses >= settings.MaxSlapUses then
-			toggleMeshParts(toolData.meshParts, 1, false)
+			toggleMeshParts(toolData.meshParts, toolData.transparencyOnGive, toolData.canCollideOnGive)
 			local slapClickPart = script.Parent.Parent:FindFirstChild(toolData.clickDetectorPart)
 			if slapClickPart then
 				local clickDetector = slapClickPart:FindFirstChild("ClickDetector")
@@ -76,14 +105,14 @@ local function giveToolAndToggleMesh(player, toolData)
 	end
 
 	local hasTakenM870 = player:FindFirstChild("HasTakenM870")
-	if toolData.toolName == settings.HiddenToolName then
+	if toolData.toolName == settings.HiddenToolName and toolData.canReturn then
 		if hasTool(player, toolData.toolName) then
 			removeTool(player, toolData.toolName)
-			toggleMeshParts(toolData.meshParts, 0, true)
+			toggleMeshParts(toolData.meshParts, toolData.transparencyOnReturn, toolData.canCollideOnReturn)
 			if hasTakenM870 then
 				hasTakenM870.Value = false
 			end
-			showNotification(player, "You have returned the M870 tool.")
+			showNotification(player, toolData.notificationOnReturn)
 		else
 			if hasTakenM870 and hasTakenM870.Value then
 				warn("Player does not have the M870 tool to put back!")
@@ -91,7 +120,7 @@ local function giveToolAndToggleMesh(player, toolData)
 			else
 				local toolClone = tool:Clone()
 				toolClone.Parent = backpack
-				toggleMeshParts(toolData.meshParts, 1, false)
+				toggleMeshParts(toolData.meshParts, toolData.transparencyOnGive, toolData.canCollideOnGive)
 				if not hasTakenM870 then
 					hasTakenM870 = Instance.new("BoolValue")
 					hasTakenM870.Name = "HasTakenM870"
@@ -100,7 +129,7 @@ local function giveToolAndToggleMesh(player, toolData)
 				else
 					hasTakenM870.Value = true
 				end
-				showNotification(player, "You have received the M870 tool.")
+				showNotification(player, toolData.notificationOnGive)
 			end
 		end
 		return
@@ -113,9 +142,9 @@ local function giveToolAndToggleMesh(player, toolData)
 	local toolClone = tool:Clone()
 	toolClone.Parent = backpack
 	if toolData.toolName == settings.HiddenToolName then
-		toggleMeshParts(toolData.meshParts, 1, false)
+		toggleMeshParts(toolData.meshParts, toolData.transparencyOnGive, toolData.canCollideOnGive)
 	end
-	showNotification(player, "You have received the " .. toolData.toolName .. " tool.")
+	showNotification(player, toolData.notificationOnGive)
 end
 
 -- Function to setup click detection

@@ -1,0 +1,667 @@
+local rs = game:GetService("RunService")
+local uis = game:GetService("UserInputService")
+local ss = game:GetService("SoundService")
+local cs = game:GetService("CollectionService")
+
+local fw = game:GetService("ReplicatedStorage").WeaponFrameworkRep
+
+local plr = game:GetService("Players").LocalPlayer
+local cam = workspace.CurrentCamera
+local mouse = plr:GetMouse()
+
+local dotTag
+
+local cameraEffect = script.CameraEffect
+local infraredEffect = script.InfraredEffect
+local nvEffect = script.NVEffect
+
+local gui = script.TargettingGui
+gui.Parent = plr.PlayerGui
+
+local nvgOn = false
+
+local cameraOn = false
+local cameraSet = false
+local infraredOn = false
+local lastNormalCF = cam.CFrame
+
+local locked = false
+local target
+local relativeCF
+
+local irSky = script.InfraredSky:Clone()
+local normalSky = game:GetService("Lighting"):FindFirstChildOfClass("Sky")
+
+local cameraModel = script.Camera.Value
+local cameraFrom = cameraModel.Optics.CameraFrom
+
+local elevation = script.StartingAngle.Value.X
+local traverse = script.StartingAngle.Value.Y
+
+local variables = cameraModel.Settings
+
+local elevMult = (variables.InvertElevation.Value and -1 or 1)
+local travMult = (variables.InvertTraverse.Value and -1 or 1)
+
+local configuredIgnore = variables.RaycastIgnore.Value
+
+local seats = {}
+
+if configuredIgnore ~= nil then
+	for _,v in pairs(configuredIgnore:GetDescendants()) do
+		if v:IsA("Seat") or v:IsA("VehicleSeat") then
+			table.insert(seats, v)
+		end
+	end
+end
+
+local step = 1
+local step2 = 1
+
+local clickSound = Instance.new("Sound")
+clickSound.Volume = 2
+clickSound.SoundId = "rbxassetid://410814187"
+
+local inputs = {
+	{0, Enum.KeyCode.W, Enum.KeyCode.S},
+	{0, Enum.KeyCode.D, Enum.KeyCode.A},
+	{0, Enum.KeyCode.Q, Enum.KeyCode.E}
+}
+
+local function isNaN(v) 
+	return type(v) == "number" and v ~= v 
+end
+
+local formatPartIR = function(v, state)
+	if state then
+		local new = Instance.new("BrickColorValue")
+		new.Value = v.BrickColor
+		new.Name = "OriginalColor"
+		new.Parent = v
+		
+		if v:IsA("UnionOperation") then
+			local opc = Instance.new("BoolValue")
+			opc.Value = v.UsePartColor
+			opc.Name = "OPC"
+			opc.Parent = v
+			
+			v.UsePartColor = true
+		end
+		
+		v.BrickColor = BrickColor.new("Institutional white")
+	else
+		local original = v:FindFirstChild("OriginalColor")
+		
+		if original ~= nil then
+			v.BrickColor = original.Value
+			
+			local opc = v:FindFirstChild("OPC")
+			
+			if opc ~= nil then
+				v.UsePartColor = opc.Value
+				opc:Destroy()
+			end
+			
+			original:Destroy()
+		end
+	end
+end
+
+formatCharIR = function(char, state)
+	pcall(function() formatPartIR(char.Head, state) end)
+	pcall(function() formatPartIR(char.Torso, state) end)
+	pcall(function() formatPartIR(char["Left Arm"], state) end)
+	pcall(function() formatPartIR(char["Right Arm"], state) end)
+	pcall(function() formatPartIR(char["Left Leg"], state) end)
+	pcall(function() formatPartIR(char["Right Leg"], state) end)
+		
+	if char:FindFirstChild("Head") and char.Head:FindFirstChild("face") then
+		char.Head.face.Transparency = (state and 1 or 0)
+	end
+	
+	if state then
+		if char:FindFirstChild("Shirt") then
+			local new = Instance.new("StringValue")
+			new.Value = char.Shirt.ShirtTemplate
+			new.Name = "OriginalID"
+			new.Parent = char.Shirt
+			
+			char.Shirt.ShirtTemplate = ""
+		end
+		
+		if char:FindFirstChild("Pants") then
+			local new = Instance.new("StringValue")
+			new.Value = char.Pants.PantsTemplate
+			new.Name = "OriginalID"
+			new.Parent = char.Pants
+			
+			char.Pants.PantsTemplate = ""
+		end
+		
+		for _,v in pairs(char:GetDescendants()) do
+			if v:IsA("SpecialMesh") and v.Parent.Name == "Handle" then
+				local new = Instance.new("StringValue")
+				new.Value = v.TextureId
+				new.Name = "OriginalID"
+				new.Parent = v
+				
+				v.TextureId = ""
+				
+				formatPartIR(v.Parent, state)
+			end
+		end
+	else
+		if char:FindFirstChild("Shirt") and char.Shirt:FindFirstChild("OriginalID") then
+			char.Shirt.ShirtTemplate = char.Shirt.OriginalID.Value
+		end
+		
+		if char:FindFirstChild("Pants") and char.Pants:FindFirstChild("OriginalID") then
+			char.Pants.PantsTemplate = char.Pants.OriginalID.Value
+		end
+		
+		for _,v in pairs(char:GetDescendants()) do
+			if v:IsA("SpecialMesh") then
+				if v:FindFirstChild("OriginalID") then
+					v.TextureId = v.OriginalID.Value
+				end
+				
+				formatPartIR(v.Parent, state)
+			end
+		end
+	end
+end
+
+for _,v in pairs(game.Players:GetPlayers()) do
+	v.CharacterAdded:Connect(function(char)
+		if infraredOn then
+			plr.CharacterAppearanceLoaded:Wait()
+			
+			formatCharIR(char, true)
+		end
+	end)
+end
+
+game.Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function(char)
+		if infraredOn then
+			plr.CharacterAppearanceLoaded:Wait()
+			
+			formatCharIR(char, true)
+		end
+	end)
+end)
+
+workspace:WaitForChild("InfraredPoints").ChildAdded:Connect(function(v)
+	if infraredOn then
+		v.Transparency = 0
+	end
+end)
+
+local setDots = function(state)
+	for _,v in pairs(workspace:WaitForChild("InfraredPoints"):GetChildren()) do
+		v.Transparency = (state and 0 or 1)
+	end
+end
+
+local powerUp = function()
+	setNV(false)
+	
+	local lastNormalCF = cam.CFrame
+	
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = cameraModel.Optics.InternalCamera.CFrame * CFrame.fromEulerAnglesYXZ(math.rad(-elevation), math.rad(-traverse), 0) * CFrame.new(0,0,-1.3)
+	gui.Crosshair.Visible = true
+	
+	cameraSet = false
+	cameraOn = true
+end
+
+local powerDown = function()
+	cam.CameraType = Enum.CameraType.Custom
+	cam.CameraSubject = plr.Character.Humanoid
+	cam.FieldOfView = 70
+	cam.CFrame = lastNormalCF
+	
+	gui.Crosshair.Visible = false
+	
+	cameraOn = false
+end
+
+local setCamera = function(state)
+	if state then
+		powerUp()
+	else
+		powerDown()
+		setIR(false)
+	end
+end
+
+local calculateAngles = function(targetVector)
+	local targElev = 0;
+	local targRot = 0;
+	
+	local turretMain = cameraModel.Optics.Base;
+	
+	-- Vector normal to the plane which is the turret ring
+	local turretNormal = turretMain.CFrame.lookVector;
+	
+	local angleFromNormal = turretNormal:Dot(targetVector);
+	
+	-- Determine gun elevation
+	targElev = math.pi/2 - math.acos(angleFromNormal);
+	targRot = math.pi/2 - math.acos(angleFromNormal);	
+
+	-- Projection of target vector onto the turret plane
+	local targetProjection = (targetVector - (angleFromNormal*turretNormal)).unit;
+
+	local forwardVector = ( (turretMain.CFrame - turretMain.CFrame.p) -- Orientation only of brick
+		* CFrame.new(0, -1, 0)).p; -- Translated down 1
+	
+	-- Determine angle between forward vector and the projected target vector
+	targRot = math.acos(forwardVector:Dot(targetProjection));
+	
+	-- Determine the sign of the angle
+	local vectorCross = forwardVector:Cross(targetProjection);
+	
+	-- If the cross product is opposite to the normal vector, make the angle negative
+	if (vectorCross:Dot(turretNormal) < 0) then
+		targRot = -targRot;
+	end
+	
+	targElev = math.clamp(targElev, -90, 90)
+	
+	if not isNaN(targElev) then
+		elevation = math.deg(targElev)
+	else
+		targElev = 0
+	end
+	
+	if not isNaN(targRot) then
+		traverse = math.deg(targRot)
+	else
+		targRot = 0
+	end
+	
+	-- Put rotation and elevation into an array
+	
+	return targElev, targRot
+end
+
+local RCILextended = function(origin, aimingAt, ignoreList)
+	local hit, pos
+	
+	local travelled = 0
+	
+	local straightDown = CFrame.new(origin, aimingAt)
+	local direction = straightDown.LookVector
+	local dist = (origin - aimingAt).Magnitude
+	
+	for _,v in pairs(seats) do
+		if v.Occupant ~= nil then
+			table.insert(ignoreList, v.Occupant.Parent)
+		end
+	end
+	
+	for i = 1, 1 + math.min(dist / 1000) do
+		local rayDist = math.min(dist - travelled, 1000)
+		
+		local start = origin + (direction * travelled)
+		local dir = (direction * rayDist)
+		
+		local ray = Ray.new(start, dir)
+		
+		hit, pos = workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+		
+		travelled = travelled + rayDist
+		
+		if hit ~= nil then break end
+	end
+	
+	return hit, pos
+end
+
+local findPart = function(cf, dist)
+	local found = false
+	
+	local ray = Ray.new(cf.Position, cf.LookVector * dist)
+	local firstIgnore = {cameraModel, configuredIgnore}
+	local ignore = cs:GetTagged("Untrackable")
+	
+	for _,v in pairs(firstIgnore) do
+		table.insert(ignore, v)
+	end
+	
+	for i = 1, 10 do
+		local hit, pos = RCILextended(cf.Position, cf.Position + cf.LookVector * dist, ignore)
+		
+		if hit == nil then
+			return
+		elseif hit ~= nil then
+			if hit.Transparency < .7 then
+				local relative = hit.CFrame:inverse() * CFrame.new(pos) 
+				return hit, relative
+			else
+				table.insert(ignore, hit)
+			end
+		end
+	end
+end
+
+local lock = function(cf)
+	if cf == nil then
+		cf = cameraModel.Optics.InternalCamera.CFrame * CFrame.fromEulerAnglesYXZ(math.rad(-elevation), math.rad(-traverse), 0) * CFrame.new(0,0,-1.3)
+		--cf = cam.CFrame
+	end
+	
+	local hit, relative = findPart(cf, 105000)
+	
+	if hit ~= nil then
+		locked = true
+		
+		dotTag = math.random()
+		
+		fw.Events.LaserDot:FireServer(19742, "new", dotTag, hit, relative)
+		
+		target = hit
+		relativeCF = relative
+	end
+end
+
+local unlock = function()
+	locked = false
+	target = nil
+	relativeCF = nil
+	
+	fw.Events.LaserDot:FireServer(19742, "end", dotTag)
+end
+
+updateInputs = function()
+	for _,data in pairs(inputs) do
+		if data[1] == 1 and not uis:IsKeyDown(data[2]) then
+			data[1] = 0
+		elseif data[1] == -1 and not uis:IsKeyDown(data[3]) then
+			data[1] = 0
+		end
+	end
+end
+
+updateFLIR = function(t)
+	if not cameraOn and not infraredOn then
+		cameraEffect.Parent = script
+		infraredEffect.Parent = script
+	elseif cameraOn and not infraredOn then
+		cameraEffect.Parent = cam
+		infraredEffect.Parent = script
+	elseif infraredOn then
+		cameraEffect.Parent = script
+		infraredEffect.Parent = cam
+	end
+	
+	irSky.Parent = (infraredOn and game.Lighting or script)
+	
+	if normalSky ~= nil then
+		normalSky.Parent = (infraredOn and nil or game.Lighting)
+	end
+	
+	if not cameraOn then return end
+	
+	if infraredOn then
+		updateIR()
+	end
+	
+	step = step + 1
+	
+	if step >= 3 then
+		step = 1
+		
+		if locked then
+			local pointAt = target.CFrame * relativeCF
+			local newCF = CFrame.new(cam.CFrame.Position, pointAt.Position)
+		
+			local hit, sendoffRelative = findPart(newCF, 1000)
+			
+			if hit ~= target then
+				unlock()
+				lock(newCF)
+			else
+				step2 = step2 + 1
+				
+				if step2 >= 3 then
+					step2 = 1
+					
+					fw.Events.LaserDot:FireServer(19742, "update", dotTag, hit, sendoffRelative)
+				end
+			end
+		end
+		
+		cameraModel.Operator.Server.UpdateAngles:FireServer(elevation, traverse)
+	end
+	
+	local fovChange = 1
+	
+	local ting = .015 * t * 60
+
+	if inputs[3][1] == 1 then
+		fovChange = fovChange * (1 + ting)
+	elseif inputs[3][1] == -1 then
+		fovChange = fovChange / (1 + ting)
+	end
+	
+	cam.FieldOfView = math.clamp(cam.FieldOfView * fovChange, 1, 50)
+	
+	gui.Crosshair.Distance.Visible = locked
+	gui.Crosshair.LockedLabel.Visible = locked
+	
+	if locked then
+		local pointAt = target.CFrame * relativeCF
+		local dist = (cam.CFrame.Position - pointAt.Position).Magnitude
+		gui.Crosshair.Distance.Text = math.floor(dist) .. " STUDS"
+		
+		
+		local newCF = CFrame.new(cameraFrom.Position, pointAt.Position)
+		local elev, trav = calculateAngles(newCF.LookVector)
+		
+		cameraModel.Elevation.C1 = CFrame.Angles(elev,0,0)
+		cameraModel.Traverse.C1 = CFrame.Angles(0,trav,0)
+	else
+		calculateAngles(cam.CFrame.LookVector)
+		
+		local multiplier = .0006 * cam.FieldOfView^2 + .1
+		
+		elevation += (inputs[1][1] * elevMult * t * 30 * multiplier)
+		traverse += (inputs[2][1] * travMult * t * 30 * multiplier)
+		
+		elevation = math.clamp(elevation, -89, 89)
+		
+		cameraModel.Elevation.C1 = CFrame.Angles(math.rad(elevation),0,0)
+		cameraModel.Traverse.C1 = CFrame.Angles(0,math.rad(traverse),0)
+	end
+	
+	cam.CFrame = cameraModel.Optics.InternalCamera.CFrame * CFrame.fromEulerAnglesYXZ(math.rad(-elevation), math.rad(-traverse), 0) * CFrame.new(0,0,-1.3)
+	
+	local lastCF = cam.CFrame
+end
+
+setNV = function(state)
+	nvgOn = state
+	
+	if cameraOn then state = false end
+	
+	if state == false then
+		game.Lighting.Ambient = fw.LightingConditions.Ambient.Value
+		game.Lighting.OutdoorAmbient = fw.LightingConditions.OutdoorAmbient.Value
+		game.Lighting.Brightness = fw.LightingConditions.Brightness.Value
+		game.Lighting.GlobalShadows = fw.LightingConditions.GlobalShadows.Value
+	end
+end
+
+local updateNV = function()
+	nvEffect.Parent = (nvgOn and cam or script)
+	
+	if nvgOn then
+		game.Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+		game.Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		game.Lighting.Brightness = 3
+		game.Lighting.GlobalShadows = false
+	end
+end
+
+setIR = function(state)
+	infraredOn = state
+	
+	for _,v in pairs(game.Players:GetPlayers()) do
+		formatCharIR(v.Character, state)
+	end
+	
+	for _,model in pairs(cs:GetTagged("RocketModel")) do
+		for _,v in pairs(model:GetDescendants()) do
+			if v:IsA("BasePart") then
+				formatPartIR(v, state)
+			end
+		end
+	end
+	
+	for _,model in pairs(cs:GetTagged("MissileModel")) do
+		for _,v in pairs(model:GetDescendants()) do
+			if v:IsA("BasePart") then
+				formatPartIR(v, state)
+			end
+		end
+	end
+	
+	setDots(state)
+	
+	if state == false then
+		game.Lighting.Ambient = fw.LightingConditions.Ambient.Value
+		game.Lighting.OutdoorAmbient = fw.LightingConditions.OutdoorAmbient.Value
+		game.Lighting.Brightness = fw.LightingConditions.Brightness.Value
+		game.Lighting.GlobalShadows = fw.LightingConditions.GlobalShadows.Value
+	end
+end
+
+updateIR = function()
+	if infraredOn then
+		game.Lighting.Ambient = Color3.fromRGB(100, 100, 100)
+		game.Lighting.OutdoorAmbient = Color3.fromRGB(100, 100, 100)
+		game.Lighting.Brightness = .5
+		game.Lighting.GlobalShadows = false
+	end
+end
+
+local updateUI = function()
+	gui.Interface.CameraPower.Text = "FLIR: " .. (cameraOn and "ON" or "OFF")
+	gui.Interface.ExternalNVG.Text = "NVG: " .. (nvgOn and "ON" or "OFF")
+	gui.Interface.InfraredToggle.Text = "IR: " .. (infraredOn and "ON" or "OFF")
+	
+	gui.Interface.InfraredToggle.Visible = cameraOn
+	gui.Interface.ExternalNVG.Visible = not cameraOn
+end
+
+local update = function(delta)
+	--rs.Heartbeat:Connect(function(delta)
+	updateInputs()
+	updateFLIR(delta)
+	updateNV()
+	updateUI()
+--end)
+end
+
+rs:BindToRenderStep("FLIR", 3000, update)
+
+gui.Interface.CameraPower.MouseButton1Click:Connect(function()
+	ss:PlayLocalSound(clickSound)
+	
+	setCamera(not cameraOn)
+end)
+
+gui.Interface.ExternalNVG.MouseButton1Click:Connect(function()
+	ss:PlayLocalSound(clickSound)
+	
+	setNV(not nvgOn)
+end)
+
+gui.Interface.InfraredToggle.MouseButton1Click:Connect(function()
+	ss:PlayLocalSound(clickSound)
+	
+	setIR(not infraredOn)
+end)
+
+script.RequestRemove.OnClientEvent:Connect(function()
+	rs:UnbindFromRenderStep("FLIR")
+	
+	unlock()
+	
+	setNV(false)
+	setIR(false)
+	
+	cam.CameraType = Enum.CameraType.Custom
+	cam.CameraSubject = plr.Character.Humanoid
+	cam.FieldOfView = 70
+	
+	cameraEffect:Destroy()
+	infraredEffect:Destroy()
+	nvEffect:Destroy()
+	irSky:Destroy()
+	
+	if normalSky ~= nil then
+		normalSky.Parent = game.Lighting
+	end
+	
+	gui:Destroy()
+	
+	script:Destroy()
+end)
+
+uis.InputBegan:Connect(function(v, gpe)
+	if not gpe then
+		if v.KeyCode == Enum.KeyCode.R and cameraOn then
+			if not locked then
+				lock()
+			else
+				unlock()
+			end
+		elseif v.KeyCode == Enum.KeyCode.C then
+			ss:PlayLocalSound(clickSound)
+			
+			setCamera(not cameraOn)
+		elseif v.KeyCode == Enum.KeyCode.T and not cameraOn then
+			ss:PlayLocalSound(clickSound)
+			
+			setNV(not nvgOn)
+		elseif v.KeyCode == Enum.KeyCode.F and cameraOn then
+			ss:PlayLocalSound(clickSound)
+			
+			setIR(not infraredOn)
+		else
+			for _,data in pairs(inputs) do
+				if v.KeyCode == data[2] then
+					data[1] = 1
+					break
+				elseif v.KeyCode == data[3] then
+					data[1] = -1
+					break
+				end
+			end
+		end
+	end
+end)
+
+cs:GetInstanceAddedSignal("RocketModel"):Connect(function(model)
+	if infraredOn then
+		for _,v in pairs(model:GetDescendants()) do
+			if v:IsA("BasePart") then
+				setIR(v, infraredOn)
+			end
+		end
+	end
+end)
+
+cs:GetInstanceAddedSignal("MissileModel"):Connect(function(model)
+	if infraredOn then
+		for _,v in pairs(model:GetDescendants()) do
+			if v:IsA("BasePart") then
+				setIR(v, infraredOn)
+			end
+		end
+	end
+end)

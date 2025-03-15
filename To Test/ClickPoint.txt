@@ -1,0 +1,20 @@
+local maxDistance = 50 -- Adjust this value as needed
+
+-- Function to update MaxActivationDistance for all ClickDetectors
+local function updateClickDetectors()
+    for _, instance in pairs(game.Workspace:GetDescendants()) do
+        if instance:IsA("ClickDetector") then
+            instance.MaxActivationDistance = maxDistance
+        end
+    end
+end
+
+-- Initial update
+updateClickDetectors()
+
+-- Update ClickDetectors whenever new instances are added to the Workspace
+game.Workspace.DescendantAdded:Connect(function(instance)
+    if instance:IsA("ClickDetector") then
+        instance.MaxActivationDistance = maxDistance
+    end
+end)

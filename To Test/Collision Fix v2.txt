@@ -1,0 +1,68 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+local RunService = game:GetService("RunService")
+
+local isAligned = false
+local alignPosition
+local alignOrientation
+
+-- Function to align the player's position with the moving object
+local function alignPositionWithObject(object)
+    if not isAligned then
+        alignPosition = Instance.new("AlignPosition")
+        alignPosition.Attachment0 = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+        alignPosition.Attachment1 = object:FindFirstChild("Attachment") or Instance.new("Attachment", object)
+        alignPosition.RigidityEnabled = true
+        alignPosition.Parent = rootPart
+
+        alignOrientation = Instance.new("AlignOrientation")
+        alignOrientation.Attachment0 = rootPart:FindFirstChild("RootAttachment") or Instance.new("Attachment", rootPart)
+        alignOrientation.Attachment1 = object:FindFirstChild("Attachment") or Instance.new("Attachment", object)
+        alignOrientation.RigidityEnabled = true
+        alignOrientation.Parent = rootPart
+
+        isAligned = true
+    else
+        alignPosition.Attachment1 = object:FindFirstChild("Attachment") or Instance.new("Attachment", object)
+        alignOrientation.Attachment1 = object:FindFirstChild("Attachment") or Instance.new("Attachment", object)
+    end
+end
+
+-- Function to remove alignment from the player
+local function removeAlignment()
+    if isAligned then
+        alignPosition:Destroy()
+        alignOrientation:Destroy()
+        isAligned = false
+    end
+end
+
+-- Function to check if the player is standing on a moving object
+local function checkStandingOnMovingObject()
+    local rayOrigin = rootPart.Position
+    local rayDirection = Vector3.new(0, -4, 0)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {character}
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local ray = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+    if ray and ray.Instance and ray.Instance.Velocity.Magnitude > 0 then
+        alignPositionWithObject(ray.Instance)
+    else
+        removeAlignment()
+    end
+end
+
+-- Connect the check function to the render step
+RunService.RenderStepped:Connect(checkStandingOnMovingObject)
+
+-- Ensure alignment is removed when the player jumps or walks
+humanoid.StateChanged:Connect(function(oldState, newState)
+    if newState == Enum.HumanoidStateType.Freefall or newState == Enum.HumanoidStateType.Jumping or newState == Enum.HumanoidStateType.Climbing then
+        removeAlignment()
+    elseif newState == Enum.HumanoidStateType.Running or newState == Enum.HumanoidStateType.RunningNoPhysics then
+        checkStandingOnMovingObject()
+    end
+end)

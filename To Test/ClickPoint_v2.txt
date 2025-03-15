@@ -1,0 +1,22 @@
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local function onMouseClick()
+    local mousePosition = UserInputService:GetMouseLocation()
+    local unitRay = camera:ScreenPointToRay(mousePosition.X, mousePosition.Y)
+    
+    local ray = Ray.new(unitRay.Origin, unitRay.Direction * 1000)
+    local hitPart, hitPosition = workspace:FindPartOnRay(ray, player.Character, false, true)
+
+    if hitPart and hitPart:FindFirstChildOfClass("ClickDetector") then
+        hitPart.ClickDetector:FireClick(player)
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        onMouseClick()
+    end
+end)

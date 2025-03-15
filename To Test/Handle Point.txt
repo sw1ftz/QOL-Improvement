@@ -1,0 +1,64 @@
+local function attachToMovingPart(character, part)
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        -- Create BodyVelocity to move the player with the part
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+        bodyVelocity.Parent = humanoidRootPart
+
+        -- Create BodyGyro to maintain player's orientation
+        local bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.CFrame = humanoidRootPart.CFrame
+        bodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
+        bodyGyro.P = 3000
+        bodyGyro.Parent = humanoidRootPart
+
+        -- Update BodyVelocity to follow the part's movement
+        local connection
+        connection = game:GetService("RunService").Heartbeat:Connect(function()
+            if not bodyVelocity.Parent then
+                connection:Disconnect()
+            else
+                bodyVelocity.Velocity = part.Velocity
+            end
+        end)
+
+        -- Clean-up when the player is no longer touching the part
+        local function onTouchEnded()
+            if (humanoidRootPart.Position - part.Position).Magnitude > part.Size.Magnitude then
+                bodyVelocity:Destroy()
+                bodyGyro:Destroy()
+            end
+        end
+
+        humanoidRootPart.Touched:Connect(function(hit)
+            if hit ~= part then
+                onTouchEnded()
+            end
+        end)
+    end
+end
+
+local function onPartTouched(part)
+    part.Touched:Connect(function(hit)
+        local character = hit.Parent
+        if character and character:FindFirstChild("Humanoid") then
+            attachToMovingPart(character, part)
+        end
+    end)
+end
+
+-- Connect to all existing parts
+for _, part in ipairs(workspace:GetDescendants()) do
+    if part:IsA("BasePart") or part:IsA("MeshPart") then
+        onPartTouched(part)
+    end
+end
+
+-- Listen for new parts added to the workspace
+workspace.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("BasePart") or descendant:IsA("MeshPart") then
+        onPartTouched(descendant)
+    end
+end)

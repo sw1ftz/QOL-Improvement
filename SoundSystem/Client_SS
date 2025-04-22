@@ -1,0 +1,206 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local RemoteEvent = ReplicatedStorage:WaitForChild("HelicopterStatsEvent")
+if not RemoteEvent then
+    warn("RemoteEvent not found in ReplicatedStorage")
+    return
+end
+
+local player = Players.LocalPlayer
+
+-- Configuration Table
+local CONFIG = {
+    DEBUG = false,               -- Toggle debug mode (press F9 to toggle)
+    SEAT_NAME = "Pilot",         -- Name of the seat
+    SOUND_ATTRIBUTE = "Sound_S", -- Attribute to check for sound system
+    DEBOUNCE_TIME = 0.1,         -- Debounce time in seconds
+    USE_DEBOUNCE = true,         -- Set to false to disable debounce
+}
+
+-- Debug print function (lightweight messaging)
+local function DebugPrint(message)
+    if CONFIG.DEBUG then
+        print("[DEBUG]: " .. message)
+    end
+end
+
+-- Toggle debug mode dynamically
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F9 then
+        CONFIG.DEBUG = not CONFIG.DEBUG
+        print("[DEBUG]: Debug mode toggled to " .. tostring(CONFIG.DEBUG))
+        if CONFIG.DEBUG then
+            DebugPrint("Debugging enabled")
+        else
+            print("[DEBUG]: Debugging disabled")
+        end
+    end
+end)
+
+-- Debounce variable for RenderStepped loop
+local debounce = false
+
+-- Optimized function to extract numbers from text.
+-- It supports strings like "ALT: 0 STUDS" and "COLLECTIVE: 50%"
+local function ExtractNumber(text)
+    if type(text) ~= "string" then
+        DebugPrint("Invalid text passed to ExtractNumber")
+        return 0
+    end
+    local num = text:match("[-]?%d+%.?%d*")
+    return tonumber(num) or 0
+end
+
+-- Safe function to find a child with minimal overhead
+local function SafeFind(parent, childName)
+    if not parent then
+        DebugPrint("Parent is nil when finding child: " .. tostring(childName))
+        return nil
+    end
+    local success, result = pcall(function() return parent:FindFirstChild(childName) end)
+    if not (success and result) then
+        DebugPrint("Child not found: " .. tostring(childName))
+    end
+    return result
+end
+
+-- Function to get Helicopter stats from GUI elements
+local function GetHelicopterStats()
+    local playerGui = SafeFind(player, "PlayerGui")
+    if not playerGui then
+        DebugPrint("PlayerGui not found")
+        return 0, 0, "OFF", 0, 0
+    end
+
+    local controls = SafeFind(playerGui, "HelicopterControls")
+    if not controls then
+        DebugPrint("HelicopterControls not found in PlayerGui")
+        return 0, 0, "OFF", 0, 0
+    end
+
+    local sortLeft = SafeFind(controls, "SortLeft")
+    if not sortLeft then
+        DebugPrint("SortLeft not found in HelicopterControls")
+        return 0, 0, "OFF", 0, 0
+    end
+
+    local main = SafeFind(sortLeft, "Main")
+    if not main then
+        DebugPrint("Main not found in SortLeft")
+        return 0, 0, "OFF", 0, 0
+    end
+
+    local rpmLabel = SafeFind(main, "RPM")
+    local speedLabel = SafeFind(main, "Speed")
+    local engineLabel = SafeFind(main, "Engine")
+    local collectiveLabel = SafeFind(main, "Collective")
+    local altitudeLabel = SafeFind(main, "Altitude")
+
+    if not rpmLabel then DebugPrint("RPM label not found") end
+    if not speedLabel then DebugPrint("Speed label not found") end
+    if not engineLabel then DebugPrint("Engine label not found") end
+    if not collectiveLabel then DebugPrint("Collective label not found") end
+    if not altitudeLabel then DebugPrint("Altitude label not found") end
+
+    local rpm = rpmLabel and ExtractNumber(rpmLabel.Text) or 0
+    local speed = speedLabel and ExtractNumber(speedLabel.Text) or 0
+    local engineStatus = engineLabel and (engineLabel.Text:match("ENGINE: ?(%w+)") or "OFF") or "OFF"
+    local collective = collectiveLabel and ExtractNumber(collectiveLabel.Text) or 0
+    local altitude = altitudeLabel and ExtractNumber(altitudeLabel.Text) or 0
+
+    DebugPrint(string.format("Stats -> RPM: %d, Speed: %d, Engine: %s, Collective: %d, Altitude: %d", rpm, speed, engineStatus, collective, altitude))
+    return rpm, speed, engineStatus, collective, altitude
+end
+
+-- Function to check if the player is seated in the "Pilot" VehicleSeat
+local function IsPlayerSeatedInPilotSeat()
+    local character = player.Character
+    if not character then
+        DebugPrint("Player character not found")
+        return false
+    end
+
+    local humanoid = SafeFind(character, "Humanoid")
+    if not humanoid or not humanoid.SeatPart then
+        DebugPrint("Player is not seated in any seat")
+        return false
+    end
+
+    local seat = humanoid.SeatPart
+    if not seat:IsA("VehicleSeat") then
+        DebugPrint("Seat is not a VehicleSeat")
+        return false
+    end
+
+    local soundEnabled = seat:GetAttribute(CONFIG.SOUND_ATTRIBUTE)
+    if soundEnabled == nil then
+        DebugPrint("Sound attribute missing or invalid")
+        soundEnabled = false
+    end
+
+    local isPilotSeat = (seat.Name == CONFIG.SEAT_NAME) and soundEnabled
+    DebugPrint("IsPlayerSeatedInPilotSeat: " .. tostring(isPilotSeat))
+    return isPilotSeat
+end
+
+-- Function to clone the script into StarterGui if necessary
+local function CloneScriptToStarterGui()
+    local playerGui = SafeFind(player, "PlayerGui")
+    if playerGui and not SafeFind(playerGui, script.Name) then
+        local clonedScript = script:Clone()
+        clonedScript.Disabled = false
+        clonedScript.Parent = playerGui
+        DebugPrint("Cloned script into PlayerGui and enabled it")
+    end
+end
+
+-- Function to remove the cloned script from StarterGui
+local function RemoveScriptFromStarterGui()
+    local playerGui = SafeFind(player, "PlayerGui")
+    if playerGui then
+        local clonedScript = SafeFind(playerGui, script.Name)
+        if clonedScript then
+            clonedScript:Destroy()
+            DebugPrint("Removed script from PlayerGui")
+        end
+    end
+end
+
+-- Clean up cloned scripts on player leave or character reset
+Players.PlayerRemoving:Connect(function(removedPlayer)
+    if removedPlayer == player then
+        RemoveScriptFromStarterGui()
+    end
+end)
+player.CharacterRemoving:Connect(RemoveScriptFromStarterGui)
+
+-- Main loop for data transmission using RenderStepped with debounce and error handling
+RunService.RenderStepped:Connect(function()
+    if CONFIG.USE_DEBOUNCE and debounce then 
+        return 
+    end
+    if CONFIG.USE_DEBOUNCE then 
+        debounce = true 
+    end
+
+    local success, err = pcall(function()
+        if IsPlayerSeatedInPilotSeat() then
+            CloneScriptToStarterGui()
+            local rpm, speed, engineStatus, collective, altitude = GetHelicopterStats()
+            DebugPrint(string.format("Sending to server -> RPM: %d, Speed: %d, Engine: %s, Collective: %d, Altitude: %d", rpm, speed, engineStatus, collective, altitude))
+            RemoteEvent:FireServer(rpm, speed, engineStatus, collective, altitude)
+        else
+            RemoveScriptFromStarterGui()
+        end
+    end)
+    if not success then
+        warn("Error in RenderStepped: " .. tostring(err))
+    end
+    task.wait(CONFIG.DEBOUNCE_TIME)
+    if CONFIG.USE_DEBOUNCE then 
+        debounce = false 
+    end
+end)

@@ -1,0 +1,239 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Debug toggle
+local DEBUG = false
+
+local function DebugPrint(message)
+    if DEBUG then
+        print("[DEBUG]: " .. message)
+    end
+end
+
+-- Create (or find) RemoteEvent for communication
+local RemoteEvent = ReplicatedStorage:FindFirstChild("HelicopterStatsEvent") or Instance.new("RemoteEvent")
+RemoteEvent.Name = "HelicopterStatsEvent"
+RemoteEvent.Parent = ReplicatedStorage
+DebugPrint("RemoteEvent initialized: " .. RemoteEvent.Name)
+
+-- Helicopter and Sound Components
+local Helicopter = script.Parent.Parent -- Adjust as needed to point to the Helicopter model
+local CloseSound = script:FindFirstChild("Close")
+local MediumSound = script:FindFirstChild("Medium")
+local FarSound = script:FindFirstChild("Far")
+
+-- Validate sound components; create fallback if missing
+if not (CloseSound and MediumSound and FarSound) then
+    warn("[SERVER] One or more distance-based sound objects missing")
+    CloseSound = CloseSound or Instance.new("Sound", script)
+    MediumSound = MediumSound or Instance.new("Sound", script)
+    FarSound = FarSound or Instance.new("Sound", script)
+end
+
+-- Set 3D positional properties for spatialization
+CloseSound.EmitterSize = 10
+CloseSound.MaxDistance = 100
+CloseSound.RollOffMode = Enum.RollOffMode.Linear
+
+MediumSound.EmitterSize = 20
+MediumSound.MaxDistance = 250
+MediumSound.RollOffMode = Enum.RollOffMode.Linear
+
+FarSound.EmitterSize = 30
+FarSound.MaxDistance = 500
+FarSound.RollOffMode = Enum.RollOffMode.Linear
+
+-- Create a Wind sound for wind noise & vibration effects
+local WindSound = script:FindFirstChild("Wind") or Instance.new("Sound", script)
+WindSound.Name = "Wind"
+WindSound.SoundId = "rbxassetid://<YOUR_WIND_ASSET_ID>"  -- Replace with actual asset id
+WindSound.Volume = 0
+WindSound.PlaybackSpeed = 1
+WindSound.EmitterSize = 30
+WindSound.MaxDistance = 500
+WindSound.RollOffMode = Enum.RollOffMode.Linear
+if not WindSound.IsPlaying then
+    WindSound:Play()
+end
+
+-- Sound settings for dynamic adjustments
+local SOUND_SETTINGS = {
+    MIN_PITCH = 0.8,
+    MAX_PITCH = 1.5,
+    MIN_VOLUME = 0.3,
+    MAX_VOLUME = 1,
+    ALTITUDE_EFFECT = 0.5,      -- How much altitude affects volume
+    COLLECTIVE_EFFECT = 0.7,    -- How much collective affects pitch/volume
+    MAX_ALTITUDE = 5000,        -- Maximum altitude for sound effects
+    DOPPLER_FACTOR = 0.0005,    -- Factor for doppler simulation
+    INTERIOR_MUFFLE = 0.7,      -- Volume multiplier for interior (muffled) effect
+    TRANSITION_RATE = 0.05,     -- Rate of volume change for start-up/shut-down
+}
+
+-- Table to store per-player previous distance for doppler simulation and engine state
+local playerStates = {}
+
+-- Function to calculate volume based on distance and altitude
+local function CalculateVolume(distance, altitude)
+    local closeVolume = math.clamp(1 - (distance / 50), 0, 1)
+    local mediumVolume = math.clamp((distance - 50) / 100, 0, 1) * math.clamp(1 - (distance - 50) / 100, 0, 1)
+    local farVolume = math.clamp((distance - 150) / 100, 0, 1)
+
+    -- Effect of altitude on volume
+    local altitudeFactor = 1 - math.clamp(altitude / SOUND_SETTINGS.MAX_ALTITUDE, 0, 1) * SOUND_SETTINGS.ALTITUDE_EFFECT
+    closeVolume = closeVolume * altitudeFactor
+    mediumVolume = mediumVolume * altitudeFactor
+    farVolume = farVolume * altitudeFactor
+
+    DebugPrint(string.format("Calculated Volume - Close: %.2f, Medium: %.2f, Far: %.2f", closeVolume, mediumVolume, farVolume))
+    return closeVolume, mediumVolume, farVolume
+end
+
+-- Function to update the Stats folder in the Helicopter model
+local function UpdateStats(rpm, speed, engineStatus, collective, altitude)
+    local soundSystem = Helicopter:FindFirstChild("Sound System")
+    if not soundSystem then
+        warn("[SERVER] Sound System not found in Helicopter")
+        return
+    end
+
+    local statsFolder = soundSystem:FindFirstChild("Stats")
+    if not statsFolder then
+        statsFolder = Instance.new("Folder")
+        statsFolder.Name = "Stats"
+        statsFolder.Parent = soundSystem
+        DebugPrint("[SERVER] Created Stats folder in Sound System")
+    end
+
+    local function UpdateValue(name, value, valueType)
+        local stat = statsFolder:FindFirstChild(name)
+        if not stat then
+            stat = Instance.new(valueType)
+            stat.Name = name
+            stat.Parent = statsFolder
+        end
+        stat.Value = value
+        DebugPrint(string.format("[SERVER] Updated %s to %s", name, tostring(value)))
+    end
+
+    UpdateValue("RPM", rpm, "NumberValue")
+    UpdateValue("IAS", speed, "NumberValue")
+    UpdateValue("Status", engineStatus == "ON", "BoolValue")
+    UpdateValue("Collective", collective, "NumberValue")
+    UpdateValue("Altitude", altitude, "NumberValue")
+end
+
+-- Function to apply sound properties including doppler, rotor sync, interior/exterior, etc.
+local function ApplySoundProperties(engineStatus, closeVolume, mediumVolume, farVolume, dynamicVolume, dynamicPitch, player, currentDistance, speed)
+    -- Retrieve previous state (or initialize)
+    local state = playerStates[player] or {
+        prevDistance = currentDistance,
+        engineOn = (engineStatus == "ON"),
+        currentVolume = dynamicVolume,
+    }
+    -- If prevDistance is nil, initialize it to currentDistance
+    state.prevDistance = state.prevDistance or currentDistance
+
+    -- Doppler effect: compute delta distance and modify pitch slightly
+    local delta = currentDistance - state.prevDistance
+    local dopplerShift = 1 + delta * SOUND_SETTINGS.DOPPLER_FACTOR
+    state.prevDistance = currentDistance
+
+    -- Adjust dynamic pitch with doppler effect and rotor sync (already computed dynamicPitch)
+    local finalPitch = dynamicPitch * dopplerShift
+
+    -- Interior vs. Exterior: if the player is inside the cockpit, apply muffling (reduce volume)
+    if engineStatus ~= "OFF" and state.interior then
+        dynamicVolume = dynamicVolume * SOUND_SETTINGS.INTERIOR_MUFFLE
+    end
+
+    -- Startup / shutdown: Smooth transition
+    if engineStatus == "ON" and not state.engineOn then
+        state.currentVolume = math.clamp(state.currentVolume + SOUND_SETTINGS.TRANSITION_RATE, SOUND_SETTINGS.MIN_VOLUME, dynamicVolume)
+        state.engineOn = true
+    elseif engineStatus == "OFF" and state.engineOn then
+        state.currentVolume = math.clamp(state.currentVolume - SOUND_SETTINGS.TRANSITION_RATE, 0, dynamicVolume)
+        if state.currentVolume <= 0 then
+            state.engineOn = false
+        end
+    else
+        state.currentVolume = dynamicVolume
+    end
+    playerStates[player] = state
+
+    if engineStatus == "OFF" then
+        CloseSound.Volume = 0
+        MediumSound.Volume = 0
+        FarSound.Volume = 0
+        CloseSound.PlaybackSpeed = 1
+        MediumSound.PlaybackSpeed = 1
+        FarSound.PlaybackSpeed = 1
+        DebugPrint("[SERVER] Engine is OFF - Sounds muted")
+    else
+        CloseSound.Volume = closeVolume * state.currentVolume
+        MediumSound.Volume = mediumVolume * state.currentVolume
+        FarSound.Volume = farVolume * state.currentVolume
+
+        CloseSound.PlaybackSpeed = finalPitch
+        MediumSound.PlaybackSpeed = finalPitch
+        FarSound.PlaybackSpeed = finalPitch
+
+        DebugPrint(string.format("Applied Sound Properties - Volume: %.2f, Pitch: %.2f", state.currentVolume, finalPitch))
+    end
+
+    local windVolume = math.clamp(speed / 300, 0, 1)
+    WindSound.Volume = windVolume * 0.8
+    WindSound.PlaybackSpeed = 1 + windVolume * 0.2
+end
+
+-- RemoteEvent handler for receiving data from the client
+RemoteEvent.OnServerEvent:Connect(function(player, rpm, speed, engineStatus, collective, altitude)
+    rpm = tonumber(rpm) or 0
+    speed = tonumber(speed) or 0
+    engineStatus = engineStatus or "OFF"
+    collective = tonumber(collective) or 0
+    altitude = tonumber(altitude) or 0
+
+    DebugPrint(string.format("[SERVER] Received from %s - RPM: %d, Speed: %d, Engine Status: %s, Collective: %d, Altitude: %d", player.Name, rpm, speed, engineStatus, collective, altitude))
+
+    -- Update stats in Helicopter model
+    UpdateStats(rpm, speed, engineStatus, collective, altitude)
+
+    -- Calculate sound parameters
+    local character = player.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if rootPart and Helicopter.PrimaryPart then
+        local distance = (rootPart.Position - Helicopter.PrimaryPart.Position).Magnitude
+        local closeVolume, mediumVolume, farVolume = CalculateVolume(distance, altitude)
+        local rpmFactor = math.clamp(rpm / 10000, 0, 1)
+        local speedFactor = math.clamp(speed / 300, 0, 1)
+        local collectiveFactor = math.clamp(collective / 100, 0, 1) * SOUND_SETTINGS.COLLECTIVE_EFFECT
+
+        local dynamicVolume = SOUND_SETTINGS.MIN_VOLUME + (rpmFactor + speedFactor + collectiveFactor) / 3 *
+                                (SOUND_SETTINGS.MAX_VOLUME - SOUND_SETTINGS.MIN_VOLUME)
+        local dynamicPitch = SOUND_SETTINGS.MIN_PITCH + (rpmFactor + collectiveFactor) *
+                               (SOUND_SETTINGS.MAX_PITCH - SOUND_SETTINGS.MIN_PITCH)
+
+        local interior = (player:GetAttribute("IsInsideCockpit") == true)
+        local state = playerStates[player] or {}
+        state.interior = interior
+        playerStates[player] = state
+
+        ApplySoundProperties(engineStatus, closeVolume, mediumVolume, farVolume, dynamicVolume, dynamicPitch, player, distance, speed)
+    end
+end)
+
+-- Watchdog to ensure critical components exist
+RunService.Heartbeat:Connect(function()
+    if not Helicopter:FindFirstChild("Sound System") then
+        warn("[SERVER] Sound System missing in Helicopter")
+    end
+    if not (CloseSound and MediumSound and FarSound) then
+        warn("[SERVER] One or more sound objects are missing")
+        CloseSound = CloseSound or Instance.new("Sound", script)
+        MediumSound = MediumSound or Instance.new("Sound", script)
+        FarSound = FarSound or Instance.new("Sound", script)
+    end
+end)

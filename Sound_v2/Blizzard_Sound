@@ -1,0 +1,44 @@
+local Players, RunService, CollectionService = game:GetService("Players"), game:GetService("RunService"), game:GetService("CollectionService")
+local player, camera, tag = Players.LocalPlayer, workspace.CurrentCamera, script.TagName
+local soundParts = {}
+
+local function inside(p, part)
+    local relative = part.CFrame:pointToObjectSpace(p)
+    local size = part.Size * 0.5
+    return  relative.X >= -size.X and relative.X <= size.X and
+            relative.Y >= -size.Y and relative.Y <= size.Y and
+            relative.Z >= -size.Z and relative.Z <= size.Z
+end
+
+local function update()
+    soundParts = {}
+    for _, part in ipairs(CollectionService:GetTagged(tag.Value)) do
+        if part:IsA("BasePart") then table.insert(soundParts, part) end
+    end
+end
+
+update()
+
+RunService.RenderStepped:Connect(function()
+    local pos = camera.CFrame.Position
+    for _, part in ipairs(soundParts) do
+        local inPart = inside(pos, part)
+        for _, d in ipairs(part:GetDescendants()) do
+            if d.Name:match("^EXT_") then
+                if d:IsA("Sound") then d.PlaybackSpeed = inPart and 0 or 1
+                elseif d:IsA("SoundEffect") then d.Enabled = not inPart end
+            end
+        end
+    end
+end)
+
+local updateDebounce = true
+RunService.Heartbeat:Connect(function()
+    if updateDebounce then
+        updateDebounce = false
+        update()
+        task.delay(5, function()
+            updateDebounce = true
+        end)
+    end
+end)
